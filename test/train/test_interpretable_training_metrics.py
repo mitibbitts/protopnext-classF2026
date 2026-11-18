@@ -53,7 +53,7 @@ class TestInterpretableTrainingMetrics:
     def test_compute_dict_after_project(self, training_metrics):
         # Calculate the metrics from project first
         training_metrics.prototypes_embedded_any = True
-        
+
         forward_args = {
             "img": torch.rand(2, 3, 224, 224),
             "target": torch.tensor([1, 0]),
@@ -187,7 +187,7 @@ class TestInterpretableTrainingMetrics:
         ["gaussian", "mask", "gaussian_mask"],
     )
     def test_spatial_alignment_generates_modified_activations(
-        self, 
+        self,
         spatial_perturbation
     ):
         class SpatialProtoPNetMock(nn.Module):
