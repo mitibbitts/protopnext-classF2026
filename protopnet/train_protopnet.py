@@ -116,7 +116,7 @@ def run(
         num_prototypes_per_class = 5
         num_addon_layers = 1
         save_on_proto_updates = True
-        rsample_init = False
+        rsample_init = True
         activation_function = "cosine"
 
     log.info("Training config %s", json.dumps(locals()))
@@ -217,8 +217,8 @@ def run(
             proto_per_class=vppn.prototype_layer.num_prototypes_per_class,
             acc_only=True,
             part_num=None,
-            img_size=None,
-            half_size=None,
+            img_size=split_dataloaders.image_size[0],
+            half_size=36,
             protopnet=vppn,
             device=setup["device"],
             spatial_alignment=spatial_alignment,
