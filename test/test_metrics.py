@@ -14,6 +14,7 @@ from protopnet.metrics import (
     PartConsistencyScore,
     PartStabilityScore,
     add_gaussian_noise,
+    add_random_mask,
 )
 from protopnet.models.vanilla_protopnet import VanillaProtoPNet
 from protopnet.preprocess import mean, std
@@ -362,3 +363,31 @@ def test_pcs_perfect_score(
         score = pcs.compute()
 
     assert score == 1.0
+
+
+@pytest.mark.parametrize(
+    "batch_size,channels,height,width,fraction",
+    [
+        pytest.param(2, 3, 8, 8, 0.25),
+        pytest.param(1, 1, 10, 12, 0.25),
+        pytest.param(3, 2, 7, 9, 0.5),
+    ],
+)
+def test_add_random_mask_zeroes_a_contiguous_region(
+    batch_size, channels, height, width, fraction
+):
+    image = torch.ones(batch_size, channels, height, width)
+    generator = torch.Generator().manual_seed(7)
+
+    masked = add_random_mask(image, generator, fraction=fraction)
+
+    side_scale = fraction**0.5
+    mask_height = min(height, max(1, round(height * side_scale)))
+    mask_width = min(width, max(1, round(width * side_scale)))
+    expected_zero_count = channels * mask_height * mask_width
+
+    assert masked.shape == image.shape
+    assert torch.all((masked == 0) | (masked == 1))
+    assert (masked == 0).sum(dim=(1, 2, 3)).tolist() == [
+        expected_zero_count
+    ] * batch_size
