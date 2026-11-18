@@ -185,6 +185,9 @@ python -m protopnet eval models.csv --dataset cub200 --output results.csv
 
 # Generate visualizations
 python -m protopnet visualization model.pth --dataset cub200
+
+# Using spatial misalignment metric (Values for spatial-perturbation: gaussian, mask, gaussian_mask)
+python -m protopnet train-protopnet --dataset cub200 --spatial-alignment --spatial-perturbation gaussian
 ```
 
 ## Datasets
