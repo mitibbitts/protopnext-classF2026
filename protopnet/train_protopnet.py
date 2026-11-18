@@ -30,6 +30,18 @@ log = logging.getLogger(__name__)
     type=int,
     default=10,
 )
+@click.option(
+    "--spatial-alignment",
+    is_flag=True,
+    help="Calculate spatial alignment metrics using Gaussian image noise.",
+)
+@click.option(
+    "--spatial-perturbation",
+    type=click.Choice(["gaussian", "mask", "gaussian_mask"]),
+    default="gaussian",
+    show_default=True,
+    help="Perturbation used by spatial alignment metrics.",
+)
 def run(
     *,
     backbone="resnet50[pretraining=inaturalist]",
@@ -47,6 +59,8 @@ def run(
     fa_func="serial",
     fa_coef=None,
     num_prototypes_per_class=10,
+    spatial_alignment=False,
+    spatial_perturbation="gaussian",
     lr_multiplier=1,
     lr_step_gamma=0.1,
     class_specific=True,
@@ -77,6 +91,8 @@ def run(
     - fa_func: str - one of "serial", "l2", or "square" to indicate which type of fine annotation loss to use. if None, fine annotation is deactivated.
     - fa_coef: float - coefficient for fine annotation loss term
     - num_prototypes_per_class: int - number of prototypes to create for each class
+    - spatial_alignment: bool - whether to calculate spatial alignment metrics using Gaussian image noise
+    - spatial_perturbation: str - the perturbation used by spatial alignment metrics. Options are "gaussian", "mask", or "gaussian_mask".
     - lr_multiplier: float - multiplier for learning rates. The base values are from protopnet's training.
     - class_specific: boolean - whether to bind prototypes to individual classes or allow them to be distributed unevenly based on training
     - dry_run: bool - Configure the training run, but do not execute it
@@ -205,6 +221,8 @@ def run(
             half_size=None,
             protopnet=vppn,
             device=setup["device"],
+            spatial_alignment=spatial_alignment,
+            spatial_perturbation=spatial_perturbation,
         ),
     )
 
