@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 import pytest
 import torch
+from torch import nn
 
 from protopnet.train.metrics import InterpretableTrainingMetrics
 
@@ -98,6 +99,7 @@ class TestInterpretableTrainingMetrics:
             )
             if key.startswith("n_"):
                 assert result[key] // 1 == result[key], key
+
             elif key == "pr":
                 precision, recall, _ = result[key]
                 assert all(((x >= 0) & (x <= 1)).all() for x in precision)
@@ -134,6 +136,7 @@ class TestInterpretableTrainingMetrics:
             )
             / 3
         )
+
         assert (
             result["acc_proto_score"] == result["accuracy"] * result["prototype_score"]
         )
@@ -178,3 +181,186 @@ class TestInterpretableTrainingMetrics:
             del result[field]
 
         assert result_2 == result, "other results should be cached"
+
+    @pytest.mark.parametrize(
+        "spatial_perturbation",
+        ["gaussian", "mask", "gaussian_mask"],
+    )
+    def test_spatial_alignment_generates_modified_activations(
+        self, 
+        spatial_perturbation
+    ):
+        class SpatialProtoPNetMock(nn.Module):
+            class PrototypeLayer:
+                prototype_class_identity = torch.tensor(
+                    [[1.0, 0.0], [0.0, 1.0]]
+                )
+
+            prototype_layer = PrototypeLayer()
+
+            def __init__(self):
+                super().__init__()
+                self.was_training_during_forward = None
+                self.forward_inputs = []
+
+            def __call__(self, x, return_prototype_layer_output_dict=False):
+                self.was_training_during_forward = self.training
+                self.forward_inputs.append(x.detach().clone())
+                activations = x[:, :2, :2, :2]
+                return {
+                    "logits": torch.zeros(x.shape[0], 2),
+                    "prototype_activations": activations,
+                }
+
+            def get_prototype_complexity(self):
+                return {
+                    "n_unique_proto_parts": torch.tensor(1),
+                    "n_unique_protos": torch.tensor(1),
+                    "prototype_sparsity": torch.tensor(1.0),
+                }
+
+        model = SpatialProtoPNetMock()
+        metrics = InterpretableTrainingMetrics(
+            protopnet=model,
+            num_classes=2,
+            proto_per_class=1,
+            part_num=2,
+            img_size=2,
+            half_size=1,
+            spatial_alignment=True,
+            spatial_perturbation=spatial_perturbation,
+        )
+        forward_args = {
+            "img": torch.arange(24, dtype=torch.float32).reshape(1, 3, 2, 4),
+            "target": torch.tensor([0]),
+        }
+        forward_outputs = {
+            "logits": torch.tensor([[1.0, 0.0]]),
+            "prototype_activations": model(forward_args["img"])[
+                "prototype_activations"
+            ],
+        }
+
+        metrics.update_all(forward_args, forward_outputs, phase="eval")
+        result = metrics.compute_dict()
+
+        assert {"spatial_pac", "spatial_prc", "spatial_plc"} <= result.keys()
+        assert model.was_training_during_forward is False
+        assert model.training is True
+        assert len(model.forward_inputs) == 2
+        modified_image = model.forward_inputs[-1]
+        assert not torch.equal(modified_image, forward_args["img"])
+        protected_boxes = metrics._get_protected_boxes(
+            forward_args["img"],
+            forward_outputs["prototype_activations"],
+            forward_args["target"],
+        )
+        for top, left, bottom, right in protected_boxes:
+            assert torch.equal(
+                modified_image[:, :, top:bottom, left:right],
+                forward_args["img"][:, :, top:bottom, left:right],
+            )
+        if spatial_perturbation in {"mask", "gaussian_mask"}:
+            assert (modified_image == 0).any()
+        if spatial_perturbation in {"gaussian", "gaussian_mask"}:
+            assert not torch.equal(
+                modified_image,
+                torch.where(modified_image == 0, modified_image, forward_args["img"]),
+            )
+
+    # Currently only ProtoPNet is supported since ProtoPool is not implemented yet, if/when it is implemented the test needs to be updated
+    # As well as the InterpretableTrainingMetrics class to support ProtoPool.
+    def test_spatial_alignment_rejects_incompatible_models(self, protopnet_mock):
+        with pytest.raises(TypeError, match="ProtoPNext/ProtoPool-compatible"):
+            InterpretableTrainingMetrics(
+                protopnet=protopnet_mock,
+                num_classes=2,
+                proto_per_class=1,
+                part_num=2,
+                img_size=224,
+                half_size=36,
+                spatial_alignment=True,
+            )
+
+    def test_compute_dict_updates_spatial_results_when_metrics_are_cached(self):
+        class SpatialProtoPNetMock(nn.Module):
+            class PrototypeLayer:
+                prototype_class_identity = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
+
+            prototype_layer = PrototypeLayer()
+
+            def get_prototype_complexity(self):
+                return {
+                    "n_unique_proto_parts": torch.tensor(1),
+                    "n_unique_protos": torch.tensor(1),
+                    "prototype_sparsity": torch.tensor(1.0),
+                }
+
+        metrics = InterpretableTrainingMetrics(
+            protopnet=SpatialProtoPNetMock(),
+            num_classes=2,
+            proto_per_class=1,
+            part_num=2,
+            img_size=224,
+            half_size=36,
+            spatial_alignment=True,
+        )
+        metrics.prototypes_embedded_any = True
+        metrics.prototype_metrics_cached = True
+        metrics.cached_results = {"prototype_score": torch.tensor(0.5)}
+
+        expected = {
+            "spatial_pac": torch.tensor(12.0),
+            "spatial_prc": torch.tensor(3.0),
+            "spatial_plc": torch.tensor(7.0),
+        }
+        with (
+            patch.object(
+                metrics.metrics["accuracy"].metric,
+                "compute",
+                return_value=torch.tensor(0.8),
+            ),
+            patch.object(
+                metrics.metrics["pr"].metric,
+                "compute",
+                return_value=(torch.tensor([0.5]), torch.tensor([0.5]), torch.tensor([0.5]))
+            ),
+            patch.object(
+                metrics.metrics["roc"].metric,
+                "compute",
+                return_value=(torch.tensor([0.0]), torch.tensor([0.5]), torch.tensor([0.5]))
+            ),
+            patch.object(
+                metrics.metrics["weighted_auroc"].metric,
+                "compute",
+                return_value=torch.tensor(0.8),
+            ),
+            patch.object(
+                metrics.metrics["class_aurocs"].metric,
+                "compute",
+                return_value=torch.tensor([0.8, 0.8]),
+            ),
+            patch.object(
+                metrics.metrics["conf_mat"].metric,
+                "compute",
+                return_value=torch.zeros((2, 2)),
+            ),
+            patch.object(
+                metrics.metrics["spatial_pac"].metric,
+                "compute",
+                return_value=expected["spatial_pac"],
+            ),
+            patch.object(
+                metrics.metrics["spatial_prc"].metric,
+                "compute",
+                return_value=expected["spatial_prc"],
+            ),
+            patch.object(
+                metrics.metrics["spatial_plc"].metric,
+                "compute",
+                return_value=expected["spatial_plc"],
+            ),
+        ):
+            result = metrics.compute_dict()
+
+        assert all(result[name] == value for name, value in expected.items())
