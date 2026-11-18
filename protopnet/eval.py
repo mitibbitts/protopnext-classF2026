@@ -23,7 +23,15 @@ def format_metrics(metrics):
     )
 
 
-def run_simple_eval_epoch(model, dataloader, num_classes, device, acc_only=False):
+def run_simple_eval_epoch(
+    model,
+    dataloader,
+    num_classes,
+    device,
+    acc_only=False,
+    spatial_alignment=False,
+    spatial_perturbation="gaussian",
+):
     """
     Run a simple evaluation loop.
 
@@ -31,6 +39,8 @@ def run_simple_eval_epoch(model, dataloader, num_classes, device, acc_only=False
     - model: The model you want to evaluation. It assumes model has prototype_layer.num_prototypes_per_class.
     - dataloader: The evaluation dataloader.
     - num_classes: The total number of classes in the evaluation dataloader, to initiate InterpretableTrainingMetrics.
+    - spatial_alignment: Whether to calculate spatial alignment metrics using Gaussian image noise.
+    - spatial_perturbation: The perturbation used by spatial alignment metrics. Options are "gaussian", "mask", or "gaussian_mask".
 
     Returns:
     - Dataframe of calculated metrics, {metric name: metric value}.
@@ -50,6 +60,8 @@ def run_simple_eval_epoch(model, dataloader, num_classes, device, acc_only=False
         protopnet=model,
         device=device,
         acc_only=acc_only,
+        spatial_alignment=spatial_alignment,
+        spatial_perturbation=spatial_perturbation,
     )
 
     model.eval()
@@ -97,6 +109,8 @@ def load_and_eval(
     device,
     num_classes,
     acc_only=False,
+    spatial_alignment=False,
+    spatial_perturbation="gaussian"
 ):
     """
     Run evaluations on the selected runs.
@@ -105,6 +119,8 @@ def load_and_eval(
     - models - A dictionary of model_name: model_path.
     - dataloader: The evaluation dataloader.
     - device: The device all calculations will be on.
+    - spatial_alignment: Whether to calculate spatial alignment metrics using Gaussian image noise.
+    - spatial_perturbation: The perturbation used by spatial alignment metrics. Options are "gaussian", "mask", or "gaussian_mask".
 
     Returns:
     - Dataframe of calculated metrics.
@@ -133,6 +149,8 @@ def load_and_eval(
                 num_classes=num_classes,
                 device=device,
                 acc_only=acc_only,
+                spatial_alignment=spatial_alignment,
+                spatial_perturbation=spatial_perturbation,
             )
 
             log.info("Running test metrics for %s", model)
@@ -142,6 +160,8 @@ def load_and_eval(
                 num_classes=num_classes,
                 device=device,
                 acc_only=acc_only,
+                spatial_alignment=spatial_alignment,
+                spatial_perturbation=spatial_perturbation,
             )
 
             complexity = saved_model.get_prototype_complexity()
@@ -266,6 +286,18 @@ class ModelParameter(click.ParamType):
     help="Dataset to evaluate on",
 )
 @click.option("--acc-only", is_flag=True, help="Only calculate accuracy", default=False)
+@click.option(
+    "--spatial-alignment",
+    is_flag=True,
+    help="Calculate spatial alignment metrics using Gaussian image noise.",
+)
+@click.option(
+    "--spatial-perturbation",
+    type=click.Choice(["gaussian", "mask", "gaussian_mask"]),
+    default="gaussian",
+    show_default=True,
+    help="Perturbation used by spatial alignment metrics.",
+)
 def run(
     model: Dict[str, str],
     output_file: Optional[Path],
@@ -273,6 +305,8 @@ def run(
     batch_size: int,
     dataset: str,
     acc_only: bool,
+    spatial_alignment: bool,
+    spatial_perturbation: str,
 ):
     """
     Evaluate models listed in a CSV file.
