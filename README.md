@@ -226,6 +226,7 @@ For example, the `ProtoPNetTrainingSchedule` has the following layout:
 - Julia Yang
 - Giyoung Kim
 - Alina Jade Barnett
+- Matthew Tibbitts
 
 ## References
 
@@ -237,3 +238,4 @@ For example, the `ProtoPNetTrainingSchedule` has the following layout:
 6. Huang et al. Evaluation and improvement of interpretability for self-explainable part-prototype networks. ICCV, 2023.
 7. Willard et al. This looks better than that: Better interpretable models with protopnext. arXiv preprint arXiv:2406.14675 (2024).
 8. Moffett et al. Cosine Similarity is Almost All You Need (for Prototypical-Part Models). WACV, 2026.
+9. Sacha, M., Jura, B., Rymarczyk, D., Struski, Łukasz, Tabor, J., & Zieliński, B. (2024). Interpretability Benchmark for Evaluating Spatial Misalignment of Prototypical Parts Explanations. Proceedings of the AAAI Conference on Artificial Intelligence, 38(19), 21563–21573. https://doi.org/10.1609/aaai.v38i19.30154
