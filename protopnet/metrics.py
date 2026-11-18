@@ -15,7 +15,13 @@ def in_bbox(loc, bbox):
     )
 
 
-def add_gaussian_noise(norm_img, generator, std=0.2, eps=0.25):
+def add_gaussian_noise(
+    norm_img,
+    generator,
+    std=0.2,
+    eps=0.25,
+    protected_boxes=None,
+):
     """
     Adds noise to an image tensor, with constraints on the noise's magnitude.
 
@@ -24,6 +30,7 @@ def add_gaussian_noise(norm_img, generator, std=0.2, eps=0.25):
     - std (float): Standard deviation of the Gaussian noise.
     - eps (float): Maximum absolute value of the noise elements.
     - generator (torch.Generator): Generator for random numbers, specifying device.
+    - protected_boxes (list of tuples): Optional list of bounding boxes to protect from noise (specifically for use in spatial alignment). Each box is defined as (top, left, bottom, right).
 
     Returns:
     - torch.Tensor: Perturbed image.
@@ -34,9 +41,96 @@ def add_gaussian_noise(norm_img, generator, std=0.2, eps=0.25):
     )
     # Constrain the noise to be within the specified epsilon limits
     noise = torch.clamp(noise, min=-eps, max=eps)
+    if protected_boxes:
+        for batch_idx, (top, left, bottom, right) in enumerate(protected_boxes):
+            noise[
+                batch_idx,
+                :,
+                max(0, int(top)) : min(norm_img.shape[-2], int(bottom)),
+                max(0, int(left)) : min(norm_img.shape[-1], int(right)),
+            ] = 0
     # Add the constrained noise to the original image
     perturbed_img = norm_img + noise
     return perturbed_img
+
+
+def add_random_mask(norm_img, generator, fraction=0.25, protected_boxes=None):
+    """
+    Zero a random contiguous rectangle in each image.
+
+    Parameters:
+    - norm_img (torch.Tensor): Normalized image tensor of shape [batch, channels, height, width].
+    - generator (torch.Generator): Generator for random numbers, specifying device.
+    - fraction (float): Fraction of the image area to be masked (between 0 and 1).
+    - protected_boxes (list of tuples): Optional list of bounding boxes to protect from masking.
+    Each box is defined as (top, left, bottom, right).
+
+    Returns:
+    - torch.Tensor: Image tensor with random masks applied.
+    """
+    if norm_img.ndim != 4:
+        raise ValueError("norm_img must have shape [batch, channels, height, width].")
+    if not 0 < fraction <= 1:
+        raise ValueError("fraction must be greater than 0 and at most 1.")
+
+    batch_size, _, height, width = norm_img.shape
+    side_scale = fraction**0.5
+    mask_height = min(height, max(1, round(height * side_scale)))
+    mask_width = min(width, max(1, round(width * side_scale)))
+    max_top = height - mask_height
+    max_left = width - mask_width
+
+    protected_boxes = protected_boxes or []
+    masked_img = norm_img.clone()
+    for batch_idx in range(batch_size):
+        protected_box = (
+            protected_boxes[batch_idx]
+            if batch_idx < len(protected_boxes)
+            else None
+        )
+        for _ in range(100):
+            top = (
+                torch.randint(
+                    max_top + 1,
+                    (),
+                    device=norm_img.device,
+                    generator=generator,
+                )
+                if max_top
+                else 0
+            )
+            left = (
+                torch.randint(
+                    max_left + 1,
+                    (),
+                    device=norm_img.device,
+                    generator=generator,
+                )
+                if max_left
+                else 0
+            )
+            top, left = int(top), int(left)
+            bottom, right = top + mask_height, left + mask_width
+            if protected_box is None:
+                break
+            prot_top, prot_left, prot_bottom, prot_right = protected_box
+            overlaps = not (
+                bottom <= prot_top
+                or top >= prot_bottom
+                or right <= prot_left
+                or left >= prot_right
+            )
+            if not overlaps:
+                break
+        else:
+            continue
+        masked_img[
+            batch_idx,
+            :,
+            top : bottom,
+            left : right,
+        ] = 0
+    return masked_img
 
 
 # ============ METRICS ============
